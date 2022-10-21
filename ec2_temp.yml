@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "create EC2 instance"
+
+Parameters:
+  EC2InstanceName:
+    Type: String
+    Description: Input any EC2InstanceName
+  EC2SecurityGroupName:
+    Type: String
+    Description: Input any EC2SecurityGroupName
+  KeyPairName:
+    Type: String
+    Description: Input any KeyPairName
+  EC2ImageId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: OK by default
+  EC2InstanceType:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - m1.small
+      - m1.large
+    Description: Enter t2.micro, m1.small, or m1.large. Default is t2.micro.
+
+# パラメーター入力画面の表示順
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: EC2 Configuration
+        Parameters:
+          - EC2InstanceName
+          - EC2ImageId
+          - EC2InstanceType
+          - EC2SecurityGroupName
+          - KeyPairName
+
+# 各サービスの定義
+Resources:
+  # キーペア
+  NewKeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Ref KeyPairName
+
+  # セキュリティグループ
+  NewEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupName: !Ref EC2SecurityGroupName
+        GroupDescription: !Ref EC2SecurityGroupName
+        Tags:
+        - Key: Name
+          Value: !Ref EC2SecurityGroupName
+        SecurityGroupIngress:
+          -
+            IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: 0.0.0.0/0
+          -
+            IpProtocol: tcp
+            FromPort : 80
+            ToPort : 80
+            CidrIp: 0.0.0.0/0
+          -
+            IpProtocol: tcp
+            FromPort : 80
+            ToPort : 80
+            CidrIpv6: ::/0
+          -
+            IpProtocol: tcp
+            FromPort : 443
+            ToPort : 443
+            CidrIp: 0.0.0.0/0
+          -
+            IpProtocol: tcp
+            FromPort : 443
+            ToPort : 443
+            CidrIpv6: ::/0
+          -
+            IpProtocol: tcp
+            FromPort : 5000
+            ToPort : 5000
+            CidrIp: 0.0.0.0/0
+
+  # EC2インスタンス
+  Ec2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref EC2ImageId
+      InstanceType: !Ref EC2InstanceType
+      SecurityGroups:
+        - !Ref NewEC2SecurityGroup
+      AvailabilityZone: ap-northeast-1a
+      Tags:
+        - Key: Name
+          Value: !Ref EC2InstanceName
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp2
+      KeyName: !Ref NewKeyPair
+      UserData:
+        Fn::Base64: |
+          #!/bin/sh
+          sudo su
+          cd ~
+          sudo yum update -y
+          sudo ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime
+
+          # git
+          sudo yum install git -y
+
+          # postgresql
+          sudo yum install -y postgresql
+
+          # apache
+          sudo yum install httpd -y
+          sudo systemctl start httpd
+          sudo systemctl enable httpd
+          sudo yum install mod_ssl -y
+          # リバースプロキシ
+          cat > /etc/httpd/conf.d/http.conf << EOF
+          ProxyRequests Off
+          ProxyPass / http://localhost:3000/
+          ProxyPassReverse / http://localhost:3000/
+          EOF
+          # apache再起動
+          sudo systemctl restart httpd
+
+          # .NET
+          sudo rpm -Uvh https://packages.microsoft.com/config/centos/7/packages-microsoft-prod.rpm
+          sudo yum install dotnet-sdk-6.0 -y
+          sudo yum install aspnetcore-runtime-6.0
+
+          # nodejs
+          touch ~/.bashrc
+          cat > /tmp/startup.sh << EOF
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+          echo 'export NVM_DIR="/home/ec2-user/.nvm"' >> /home/ec2-user/.bashrc
+          echo 'export NVM_DIR="/home/ec2-user/.nvm"' >> /home/ec2-user/.bash_profile
+          echo '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm' >> /home/ec2-user/.bashrc
+          . /home/ec2-user/.nvm/nvm.sh
+          . /home/ec2-user/.bash_profile
+          . /home/ec2-user/.bashrc
+          nvm install --lts
+          EOF
+          chown ec2-user:ec2-user /tmp/startup.sh && chmod a+x /tmp/startup.sh
+          sleep 1; su - ec2-user -c "/tmp/startup.sh"

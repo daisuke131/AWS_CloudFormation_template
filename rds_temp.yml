@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "create DB instance"
+
+Parameters:
+  DBInstanceName:
+    Type: String
+    Description: Input any DBInstanceName.
+  DBSecurityGroupName:
+    Type: String
+    Description: Input any DBSecurityGroupName.
+  DBInstanceType:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t4g.micro
+    Description: Enter db.t3.micro or db.t4g.micro. Default is db.t3.micro.
+  DBUsername:
+    Type: String
+    Description: Input any Username.
+  DBPassword:
+    Type: String
+    Description: Input any DBPassword.8 characters or more.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: RDS Configuration
+        Parameters:
+          - DBInstanceName
+          - DBSecurityGroupName
+          - DBInstanceType
+          - DBUsername
+          - DBPassword
+
+Resources:
+  NewEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupName: !Ref DBSecurityGroupName
+        GroupDescription: !Ref DBSecurityGroupName
+        Tags:
+        - Key: Name
+          Value: !Ref DBSecurityGroupName
+        SecurityGroupIngress:
+          -
+            IpProtocol: tcp
+            FromPort: 5432
+            ToPort: 5432
+            CidrIp: 0.0.0.0/0
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBName: !Ref DBInstanceName
+      VPCSecurityGroups:
+        - !GetAtt NewEC2SecurityGroup.GroupId
+      AllocatedStorage: '5'
+      DBInstanceClass: !Ref DBInstanceType
+      Engine: postgres
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      StorageType: gp2
+      AvailabilityZone: ap-northeast-1a
+      PubliclyAccessible: true
+      Tags:
+        - Key: "Name"
+          Value: !Ref DBInstanceName
